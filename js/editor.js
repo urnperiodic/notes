@@ -8,7 +8,7 @@
 'use strict';
 
 const NF = window.NF;
-const { $, $$, el, esc, stripHtml, state, persist, scheduleSave, toast } = NF;
+const { $, $$, el, esc, stripHtml, state, persist, scheduleSave, toast, closeTab } = NF;
 const editor = NF.editor;
 const openCtx = window._openCtx;
 const { openModal, closeModal, confirmModal } = window._modal;
@@ -605,12 +605,43 @@ $('#settingsBtn').onclick = () => { buildAccents(); openPanel('settingsPanel'); 
 $('#setFullWidth').onchange = (e) => { state.settings.fullWidth = e.target.checked; persist(); applyEditorPrefs(); };
 $('#setSpellcheck').onchange = (e) => { state.settings.spellcheck = e.target.checked; editor.spellcheck = e.target.checked; persist(); };
 $('#setAutosave').onchange = (e) => { state.settings.autosave = e.target.checked; persist(); };
+
+function bindSidebarCheckbox(id, settingKey) {
+  const el = $('#' + id);
+  if (el) {
+    el.onchange = (e) => {
+      state.settings[settingKey] = e.target.checked;
+      persist();
+      NF.renderAll();
+    };
+  }
+}
+bindSidebarCheckbox('setShowAll', 'showAll');
+bindSidebarCheckbox('setShowRecent', 'showRecent');
+bindSidebarCheckbox('setShowPinned', 'showPinned');
+bindSidebarCheckbox('setShowTags', 'showTags');
+bindSidebarCheckbox('setShowArchive', 'showArchive');
+bindSidebarCheckbox('setShowTrash', 'showTrash');
+bindSidebarCheckbox('setShowFolders', 'showFolders');
+
+function applySettingsCheckboxes() {
+  if ($('#setShowAll')) $('#setShowAll').checked = state.settings.showAll !== false;
+  if ($('#setShowRecent')) $('#setShowRecent').checked = state.settings.showRecent !== false;
+  if ($('#setShowPinned')) $('#setShowPinned').checked = state.settings.showPinned !== false;
+  if ($('#setShowTags')) $('#setShowTags').checked = state.settings.showTags !== false;
+  if ($('#setShowArchive')) $('#setShowArchive').checked = state.settings.showArchive !== false;
+  if ($('#setShowTrash')) $('#setShowTrash').checked = state.settings.showTrash !== false;
+  if ($('#setShowFolders')) $('#setShowFolders').checked = state.settings.showFolders !== false;
+}
+window._applySettingsCheckboxes = applySettingsCheckboxes;
+
 function applyEditorPrefs() {
   $('#editorArea').classList.toggle('full-width', state.settings.fullWidth);
   $('#setFullWidth').checked = state.settings.fullWidth;
   $('#setSpellcheck').checked = state.settings.spellcheck;
   $('#setAutosave').checked = state.settings.autosave;
   editor.spellcheck = state.settings.spellcheck;
+  applySettingsCheckboxes();
 }
 
 /* ============================================================
@@ -706,6 +737,54 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key === 'F11') { e.preventDefault(); $('#focusBtn').click(); return; }
+
+  // Handle Delete/Backspace for selected note/folder when not inside form fields/editor
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    const focused = document.activeElement;
+    const inInput = focused && (
+      focused.tagName === 'INPUT' ||
+      focused.tagName === 'TEXTAREA' ||
+      focused.tagName === 'SELECT' ||
+      focused.closest('[contenteditable="true"]')
+    );
+    if (!inInput) {
+      if (state.ui.activeNote) {
+        e.preventDefault();
+        const n = state.notes[state.ui.activeNote];
+        if (n) {
+          if (n.trashed) {
+            confirmModal('Delete forever?', 'This cannot be undone.', () => {
+              delete state.notes[n.id];
+              closeTab(n.id);
+              persist();
+              NF.renderAll();
+            });
+          } else {
+            n.trashed = true;
+            persist();
+            NF.renderAll();
+            toast('Moved to trash');
+          }
+        }
+      } else if (state.ui.activeFolder) {
+        e.preventDefault();
+        const f = state.folders[state.ui.activeFolder];
+        if (f) {
+          confirmModal(`Delete folder “${f.name}”?`, 'Notes inside will move to All Notes. Subfolders are removed.', () => {
+            Object.values(state.notes).forEach(n => { if (n.folder === f.id) n.folder = null; });
+            Object.values(state.folders).forEach(x => { if (x.parent === f.id) x.parent = null; });
+            delete state.folders[f.id];
+            if (state.ui.activeFolder === f.id) { state.ui.activeFolder = null; state.ui.view = 'all'; }
+            persist();
+            NF.renderAll();
+            toast('Folder deleted');
+          });
+        }
+      }
+      return;
+    }
+  }
+
   if (!mod) return;
   const k = e.key.toLowerCase();
   if (k === 's') { e.preventDefault(); NF.captureContent(); persist(true); toast('Saved', 'success'); }
