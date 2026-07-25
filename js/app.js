@@ -30,6 +30,9 @@ const DEFAULT_STATE = {
     theme: 'light', accent: '#4f7cff', fullWidth: false,
     spellcheck: true, autosave: true, sidebarWidth: 280,
     zoom: 100, toolbarCollapsed: false,
+    showAll: false, showRecent: false, showPinned: false, showTags: false,
+    showArchive: false, showTrash: false, showFolders: false,
+    migratedDeleteAllThs: true,
   },
   ui: { openTabs: [], activeNote: null, view: 'all', activeFolder: null, sort: 'edited', recent: [] },
 };
@@ -41,11 +44,59 @@ function load() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      // Ensure migratedDeleteAllThs exists
+      if (parsed.settings && parsed.settings.migratedDeleteAllThs === undefined) {
+        parsed.settings.showAll = false;
+        parsed.settings.showRecent = false;
+        parsed.settings.showPinned = false;
+        parsed.settings.showTags = false;
+        parsed.settings.showArchive = false;
+        parsed.settings.showTrash = false;
+        parsed.settings.showFolders = false;
+        parsed.settings.migratedDeleteAllThs = true;
+      }
       // deep-merge defaults so new fields are present
       parsed.settings = Object.assign({}, DEFAULT_STATE.settings, parsed.settings);
       parsed.ui = Object.assign({}, DEFAULT_STATE.ui, parsed.ui);
       parsed.notes = parsed.notes || {};
       parsed.folders = parsed.folders || {};
+
+      // Cleanup: remove the welcome note if it exists
+      let welcomeNoteId = null;
+      for (const id in parsed.notes) {
+        if (parsed.notes[id] && parsed.notes[id].title === 'Welcome to NoteForge ✨') {
+          welcomeNoteId = id;
+          delete parsed.notes[id];
+        }
+      }
+      if (welcomeNoteId) {
+        // Also remove from activeNote, openTabs, recent
+        if (parsed.ui.activeNote === welcomeNoteId) {
+          parsed.ui.activeNote = null;
+        }
+        parsed.ui.openTabs = (parsed.ui.openTabs || []).filter(id => id !== welcomeNoteId);
+        parsed.ui.recent = (parsed.ui.recent || []).filter(id => id !== welcomeNoteId);
+
+        // Remove folder "Getting Started" if it's empty
+        for (const fId in parsed.folders) {
+          if (parsed.folders[fId] && parsed.folders[fId].name === 'Getting Started') {
+            const hasOtherNotes = Object.values(parsed.notes).some(n => n.folder === fId);
+            if (!hasOtherNotes) {
+              delete parsed.folders[fId];
+              if (parsed.ui.activeFolder === fId) {
+                parsed.ui.activeFolder = null;
+                parsed.ui.view = 'all';
+              }
+            }
+          }
+        }
+
+        // Persist cleaned up state immediately
+        try {
+          localStorage.setItem(STORE_KEY, JSON.stringify(parsed));
+        } catch (e) {}
+      }
+
       return parsed;
     }
   } catch (e) { console.warn('Load failed, starting fresh', e); }
@@ -55,27 +106,6 @@ function load() {
 // First-run seed content
 function seed() {
   const s = JSON.parse(JSON.stringify(DEFAULT_STATE));
-  const fId = uid();
-  s.folders[fId] = { id: fId, name: 'Getting Started', parent: null, collapsed: false, order: 0 };
-  const n = newNoteObj('Welcome to NoteForge ✨', fId);
-  n.content = `<h1>Welcome to NoteForge ✨</h1>
-<p>A polished, <b>fully client-side</b> document editor — your notes never leave this browser.</p>
-<h2>Try these</h2>
-<ul>
-<li>Format text with the toolbar or shortcuts (<code>Ctrl+B</code>, <code>Ctrl+I</code>).</li>
-<li>Create <b>folders</b>, <b>tags</b>, pin favorites, and organize in the sidebar.</li>
-<li>Insert tables, images (drag &amp; drop!), links, emojis and more.</li>
-<li>Export to <b>PDF (print)</b>, <b>HTML</b>, <b>Markdown</b>, <b>TXT</b> or <b>JSON</b>.</li>
-</ul>
-<blockquote>Everything auto-saves to your browser as you type.</blockquote>
-<h3>Checklist example</h3>
-<ul data-type="checklist"><li>Write something great</li><li class="checked">Install NoteForge</li></ul>
-<hr>
-<p>Open <b>Settings</b> (⚙️) to switch themes and accent colors. Enjoy! 🚀</p>`;
-  s.notes[n.id] = n;
-  s.ui.activeNote = n.id;
-  s.ui.openTabs = [n.id];
-  s.ui.recent = [n.id];
   return s;
 }
 
@@ -165,14 +195,35 @@ const QUICK_VIEWS = [
 
 function renderQuickViews() {
   const c = $('#quickViews'); c.innerHTML = '';
+  let countVisible = 0;
   QUICK_VIEWS.forEach(v => {
+    // Check if view is configured to show
+    const settingKey = 'show' + v.id.charAt(0).toUpperCase() + v.id.slice(1);
+    if (state.settings[settingKey] === false) return;
+
+    countVisible++;
     const count = countForView(v.id);
     const item = el('div', 'nav-item' + (state.ui.view === v.id && !state.ui.activeFolder ? ' active' : ''));
     item.innerHTML = `<i class="fa-solid fa-fw ${v.icon}"></i><span>${v.label}</span>` +
       (count != null ? `<span class="count">${count}</span>` : '');
     item.onclick = () => { state.ui.view = v.id; state.ui.activeFolder = null; renderAll(); };
+    item.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openCtx(e.clientX, e.clientY, [
+        { icon: 'fa-eye-slash', label: 'Hide from sidebar', action: () => {
+          state.settings[settingKey] = false;
+          if (state.ui.view === v.id) state.ui.view = 'all';
+          persist();
+          renderAll();
+          if (window._applySettingsCheckboxes) window._applySettingsCheckboxes();
+          toast(v.label + ' hidden. Re-enable in Settings.', 'info');
+        }}
+      ]);
+    };
     c.appendChild(item);
   });
+  c.style.display = countVisible > 0 ? 'block' : 'none';
 }
 
 function countForView(view) {
@@ -190,6 +241,26 @@ function countForView(view) {
 // Recursive folder tree
 function renderFolderTree() {
   const root = $('#folderTree'); root.innerHTML = '';
+  const foldersSection = $('#foldersSection');
+  if (foldersSection) {
+    foldersSection.style.display = state.settings.showFolders ? 'block' : 'none';
+  }
+  const foldersLabel = $('#foldersLabel');
+  if (foldersLabel) {
+    foldersLabel.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openCtx(e.clientX, e.clientY, [
+        { icon: 'fa-eye-slash', label: 'Hide from sidebar', action: () => {
+          state.settings.showFolders = false;
+          persist();
+          renderAll();
+          if (window._applySettingsCheckboxes) window._applySettingsCheckboxes();
+          toast('Folders hidden. Re-enable in Settings.', 'info');
+        }}
+      ]);
+    };
+  }
   const build = (parentId, container) => {
     Object.values(state.folders)
       .filter(f => f.parent === parentId)
@@ -455,7 +526,7 @@ function updateStats() {
 // expose to window for other sections
 window.NF = { $, $$, el, esc, stripHtml, state, persist, scheduleSave, toast, openNote, renderAll,
   editor, captureContent, updateStats, fmtTime, relTime, fmtDate, buildOutline: () => buildOutline(),
-  currentNote: () => state.notes[currentNoteId], setCurrent: (id) => currentNoteId = id, uid, now };
+  currentNote: () => state.notes[currentNoteId], setCurrent: (id) => currentNoteId = id, uid, now, closeTab };
 
 /* placeholders assigned in part 2 */
 function buildOutline() { if (window._buildOutline) window._buildOutline(); }
