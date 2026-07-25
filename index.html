@@ -31,8 +31,8 @@
       <!-- Quick views -->
       <div class="nav-section" id="quickViews"></div>
       <!-- Folders -->
-      <div class="nav-section">
-        <div class="nav-label">Folders
+      <div class="nav-section" id="foldersSection">
+        <div class="nav-label" id="foldersLabel">Folders
           <button id="addFolderBtn" title="New folder"><i class="fa-solid fa-folder-plus"></i></button>
         </div>
         <div id="folderTree"></div>
@@ -217,6 +217,16 @@
       <div class="setting-row"><span>Full-width editor</span><label class="switch"><input type="checkbox" id="setFullWidth"><span class="slider"></span></label></div>
       <div class="setting-row"><span>Spellcheck</span><label class="switch"><input type="checkbox" id="setSpellcheck" checked><span class="slider"></span></label></div>
       <div class="setting-row"><span>Autosave</span><label class="switch"><input type="checkbox" id="setAutosave" checked><span class="slider"></span></label></div>
+    </div>
+    <div class="setting-group">
+      <h4>Sidebar Sections</h4>
+      <div class="setting-row"><span>Show All Notes View</span><label class="switch"><input type="checkbox" id="setShowAll" checked><span class="slider"></span></label></div>
+      <div class="setting-row"><span>Show Recent</span><label class="switch"><input type="checkbox" id="setShowRecent" checked><span class="slider"></span></label></div>
+      <div class="setting-row"><span>Show Pinned</span><label class="switch"><input type="checkbox" id="setShowPinned" checked><span class="slider"></span></label></div>
+      <div class="setting-row"><span>Show Tags</span><label class="switch"><input type="checkbox" id="setShowTags" checked><span class="slider"></span></label></div>
+      <div class="setting-row"><span>Show Archive</span><label class="switch"><input type="checkbox" id="setShowArchive" checked><span class="slider"></span></label></div>
+      <div class="setting-row"><span>Show Trash</span><label class="switch"><input type="checkbox" id="setShowTrash" checked><span class="slider"></span></label></div>
+      <div class="setting-row"><span>Show Folders</span><label class="switch"><input type="checkbox" id="setShowFolders" checked><span class="slider"></span></label></div>
     </div>
     <div class="setting-group">
       <h4>Data</h4>
